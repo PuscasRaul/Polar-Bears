@@ -183,15 +183,6 @@ size_t read_line(char *buffer, Matrix *matrix) {
 	return 0;
 }
 
-Column *get_by_key(const Matrix *matrix, char *key) {
-	for (size_t i = 0; i < matrix->size; i++) {
-		if (!strcmp(matrix->key_columns[i], key)) {
-			return &matrix->column[i];
-		}
-	}
-	return NULL;
-}
-
 int main(int argc, char* argv[]) {
 	if (argc != 2) {
 		perror("provide the path to the .csv file");

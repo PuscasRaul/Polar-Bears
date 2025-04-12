@@ -97,3 +97,12 @@ size_t add_element(Column *column, void *element) {
 			return 1;
 	}
 }
+
+Column *get_by_key(const Matrix *matrix, char *key) {
+	for (size_t i = 0; i < matrix->size; i++) {
+		if (!strcmp(matrix->key_columns[i], key)) {
+			return &matrix->column[i];
+		}
+	}
+	return NULL;
+}

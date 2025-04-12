@@ -24,3 +24,4 @@ size_t resize(Column *column);
 
 size_t add_element(Column *column, void *element); 
  
+Column *get_by_key(const Matrix *matrix, char *key);
