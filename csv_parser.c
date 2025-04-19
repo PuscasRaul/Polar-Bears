@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <endian.h>
 #include <limits.h>
 #include <stddef.h>
@@ -7,11 +8,30 @@
 #include <string.h>
 #include <errno.h>
 #include <math.h>
-#include "Matrix.h"
+#include "csv_parser.h"
 
-#define COLUMN_SIZE 155
+struct csv_parser *create_parser(
+		const char *file_path, 
+		int (*read_csv)(struct csv_parser *),
+		void (*destroy_parser)(struct csv_parser*)
+) {
+		struct csv_parser *parser = malloc(sizeof(struct csv_parser));
+		if (!parser) 
+			return NULL;
+		parser->csv_file = strdup(file_path); 
+		parser->read_csv = read_csv;
+		parser->destroy_parser = destroy_parser;
+		init_matrix(&parser->matrix);
+		return parser;
+}
 
-char* my_strtok(char* str, const char* delimiters) {
+void destroy_parser(struct csv_parser *parser) {
+	free_matrix(&parser->matrix);
+	free(parser->csv_file);
+	free(parser);
+}
+
+static char *my_strtok(char* str, const char* delimiters) {
     static char* saved_token = NULL;
     char* token_start;
 
@@ -46,35 +66,39 @@ char* my_strtok(char* str, const char* delimiters) {
     return token_start;
 }
 
-size_t load_keys(char *buffer, Matrix *matrix) {
-	char *s = strtok(buffer, ",");
+static size_t load_keys(char *buffer, struct csv_parser *parser) {
+	char *s = my_strtok(buffer, ",");
 	while(s) {
 		// read the keys
-		matrix->key_columns[matrix->size] = malloc(strlen(s));
+		parser->matrix.key_columns[parser->matrix.size] = malloc((strlen(s) + 1) * sizeof(char));
 
-		if (!matrix->key_columns[matrix->size]) {
+		if (!parser->matrix.key_columns[parser->matrix.size]) {
 			fprintf(stderr, "allocating key in key_columns\n");
 			return 1;
 		}
 
-		if (!memmove(matrix->key_columns[matrix->size], s, strlen(s))) {
+		if (!memmove(parser->matrix.key_columns[parser->matrix.size], s, strlen(s))) {
 			fprintf(stderr, "memmove error for key: %s\n", s);
 			return 1;
 		}
 
-		// as much as we can, we do not know the type of the column yet
-		matrix->column[matrix->size].size = 0;
-		matrix->column[matrix->size].capacity = 64;
+		int index = strlen(s) - 1;
+		while (!isalnum(parser->matrix.key_columns[parser->matrix.size][index]) 
+					 && isspace(parser->matrix.key_columns[parser->matrix.size][index])) {
+			parser->matrix.key_columns[parser->matrix.size][index] = index + 1;
+			--index;
+		}
+		parser->matrix.key_columns[parser->matrix.size][index + 1] = '\0';
 
-		++matrix->size;
-		s = strtok(NULL, ",");
+		++parser->matrix.size;
+		s = my_strtok(NULL, ",");
 	}
 
 	return 0;
 }
 
-size_t load_key_types(char *buffer, Matrix *matrix ) {
-	char *s = strtok(buffer, ",");
+static size_t load_key_types(char *buffer, struct csv_parser *parser) {
+	char *s = my_strtok(buffer, ",");
 	size_t column_index = 0;
 	while(s) {
 		// check for int first
@@ -85,20 +109,20 @@ size_t load_key_types(char *buffer, Matrix *matrix ) {
 		// means there was conversion made
 		if (endptr != s && errno != ERANGE && *endptr == '\0') {
 			// fprintf(stderr, "CASE INT\n");
-			matrix->column[column_index].type = TYPE_INT;
-			matrix->column[column_index].values = 
-				(int*) malloc(sizeof(int) * matrix->column[column_index].capacity);
+			parser->matrix.column[column_index].type = TYPE_INT;
+			parser->matrix.column[column_index].values = 
+				(int*) malloc(sizeof(int) * parser->matrix.column[column_index].capacity);
 
-			if (!matrix->column[column_index].values) {
+			if (!parser->matrix.column[column_index].values) {
 				fprintf(stderr, "error allocating column cells for key: %s", 
-							  matrix->key_columns[column_index]);
+							  parser->matrix.key_columns[column_index]);
 				return 1;
 			}
 
-			if (add_element(&matrix->column[column_index++], &int_value)) 
+			if (add_element(&parser->matrix.column[column_index++], &int_value)) 
 				return 1;
 			
-			s = strtok(NULL, ",");
+			s = my_strtok(NULL, ",");
 			continue;
 		}
 
@@ -107,57 +131,57 @@ size_t load_key_types(char *buffer, Matrix *matrix ) {
 
 		if (endptr != s && errno != ERANGE) {
 			// fprintf(stderr, "CASE DOUBLE\n");
-			matrix->column[column_index].type = TYPE_FLOAT;
-			matrix->column[column_index].values = 
-				(double*) malloc(sizeof(double) * matrix->column[column_index].capacity);
+			parser->matrix.column[column_index].type = TYPE_FLOAT;
+			parser->matrix.column[column_index].values = 
+				(double*) malloc(sizeof(double) * parser->matrix.column[column_index].capacity);
 
-			if (!matrix->column[column_index].values) {
+			if (!parser->matrix.column[column_index].values) {
 				fprintf(stderr, "error allocating column cells for key: %s", 
-							  matrix->key_columns[column_index]);
+							  parser->matrix.key_columns[column_index]);
 				return 1;
 			}
 			
-			if (add_element(&matrix->column[column_index++], &double_value)) 
+			if (add_element(&parser->matrix.column[column_index++], &double_value)) 
 				return 1;
 			
-			s = strtok(NULL, ",");
+			s = my_strtok(NULL, ",");
 			continue;
 		}
 
 		// otherwise default to type string
 		// fprintf(stderr, "CASE STRING \n");
-		matrix->column[column_index].type = TYPE_STRING;
-		matrix->column[column_index].values = 
-			(char **) malloc(sizeof(char*) * matrix->column[column_index].capacity);
+		parser->matrix.column[column_index].type = TYPE_STRING;
+		parser->matrix.column[column_index].values = 
+			(char **) malloc(sizeof(char*) * parser->matrix.column[column_index].capacity);
 
-		if (!matrix->column[column_index].values) {
+		if (!parser->matrix.column[column_index].values) {
 				fprintf(stderr, "error allocating column cells for key: %s", 
-							  matrix->key_columns[column_index]);
+							  parser->matrix.key_columns[column_index]);
 				return 1;
 		}
 
-		if (add_element(&matrix->column[column_index++], s)) 
+		if (add_element(&parser->matrix.column[column_index++], s)) 
 			return 1;
 		
-		s = strtok(NULL, ",");
+		s = my_strtok(NULL, ",");
 	}
 
 	return 0;
 }
 
-size_t read_line(char *buffer, Matrix *matrix) {
+static size_t read_line(char *buffer, struct csv_parser *parser) {
 	char *s = my_strtok(buffer, ",");
 	size_t column_index = 0;
 	while (s) {
 		char *endptr;
-		switch(matrix->column[column_index].type) {
+		switch(parser->matrix.column[column_index].type) {
 			case TYPE_INT:
 				;
 				int int_value;
 				if (!strcmp(s, ""))
 					int_value = INT_MIN;
 				else int_value = strtol(s, &endptr, 10);
-				if (add_element(&matrix->column[column_index], &int_value))
+				if (add_element(&parser->matrix.column[column_index], &int_value))
 					return 1;
 				break;
 			case TYPE_FLOAT:
@@ -166,12 +190,12 @@ size_t read_line(char *buffer, Matrix *matrix) {
 				if (!strcmp(s, ""))
 					double_value = INFINITY;
 				else double_value = strtod(s, &endptr);
-				if (add_element(&matrix->column[column_index], &double_value))
+				if (add_element(&parser->matrix.column[column_index], &double_value))
 					return 1;
 				break;
 			case TYPE_STRING:
 				;
-				if (add_element(&matrix->column[column_index], s))
+				if (add_element(&parser->matrix.column[column_index], s))
 					return 1;
 				break;
 			default:
@@ -183,92 +207,41 @@ size_t read_line(char *buffer, Matrix *matrix) {
 	return 0;
 }
 
-int main(int argc, char* argv[]) {
-	if (argc != 2) {
-		perror("provide the path to the .csv file");
-		return 1;
-	}
-
-	FILE *csv_file = fopen(argv[1], "r");
+int read_csv(struct csv_parser *parser) {
+	FILE *csv_file = fopen(parser->csv_file, "r");
 	if (!csv_file) {
 		perror("could not open file");
 		return 1;
-	}
-
-	// initialize the matrix and it's columns and key-number pairing array
-	Matrix matrix;
-	matrix.size = 0;
-	matrix.column = (Column*) malloc(sizeof(Column) * MAX_COLUMNS);
-	if (!matrix.column) {
-		fprintf(stderr, "Error allocating matrix columns pointer\n");
-		fclose(csv_file);
-		return 1;
-	}
-	matrix.column->size = 0;
-
-	matrix.key_columns = (char**) malloc(sizeof(char*) * MAX_COLUMNS);
-	if (!matrix.key_columns) {
-		fprintf(stderr, "Error allocating key number pairing");
-		fclose(csv_file);
-		free(matrix.column);
 	}
 
 	char buffer[1000];
 	if (!fgets(buffer, 1000, csv_file)) {
 		fprintf(stderr, "Error reading key line\n");
 		fclose(csv_file);
-		free(matrix.column);
+		return 1;
 	}
 
-	if (load_keys(buffer, &matrix)) {
+	if (load_keys(buffer, parser)) {
 		fclose(csv_file);
-		free_matrix(&matrix);
 		return 1;
 	}
 	
 	if (!fgets(buffer, 1000, csv_file)) {
 		fprintf(stderr, "Error trying to read the second line\n");
 		fclose(csv_file);
-		free_matrix(&matrix);
 		return 1;
 	}
 
-	if (load_key_types(buffer, &matrix)) {
-		free_matrix(&matrix);
+	if (load_key_types(buffer, parser)) {
 		fclose(csv_file);
 	}
 
 	while (fgets(buffer, 1000, csv_file)) {
-		if (read_line(buffer, &matrix)) {
-			free_matrix(&matrix);
+		if (read_line(buffer, parser)) {
 			fclose(csv_file);
 		}
 	}
-
-	for (size_t i = 0; i < matrix.size; i++) {
-		switch(matrix.column[i].type) {
-			case TYPE_INT:
-				for (size_t j = 0; j < matrix.column[i].size; j++)
-					printf("%d\n", ((int*) matrix.column[i].values)[j]);
-				break;
-			case TYPE_FLOAT:
-				for (size_t j = 0; j < matrix.column[i].size; j++)
-					printf("%f\n", ((double*) matrix.column[i].values)[j]);
-				break;
-			case TYPE_STRING:
-				for (size_t j = 0; j < matrix.column[i].size; j++)
-					printf("%s\n", ((char**) matrix.column[i].values)[j]);
-				break;
-			default:
-				continue;
-		}
-	}
-
-	for (size_t i = 0; i < matrix.size; i++) {
-		printf("%s\n", matrix.key_columns[i]);
-	}
-
-	free_matrix(&matrix);
+	fclose(csv_file);
 	return 0;
 }
 

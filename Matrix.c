@@ -1,7 +1,30 @@
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "Matrix.h"
+
+#define MAX_COLUMNS 155
+
+int init_matrix(Matrix *matrix) {
+	matrix->size = 0;
+	matrix->column = calloc(MAX_COLUMNS, sizeof(Column));
+	if (!matrix->column) 
+		return 1;
+
+	for (size_t i = 0; i < MAX_COLUMNS; i++) {
+		matrix->column[i].capacity = 256;
+		matrix->column[i].size = 0;
+	}
+
+	matrix->key_columns = calloc(MAX_COLUMNS, sizeof(char*));
+	if (!matrix->key_columns) { 
+		free(matrix->column);
+		return 1;
+	}
+	
+	return 0;
+} 
 
 // free's the matrix and all it's containg columns
 // no return of any sort if anything fails it's seg fault
@@ -12,11 +35,13 @@ void free_matrix(Matrix *matrix) {
 				free(matrix->column[i].values);
 				matrix->column[i].size = 0;
 				matrix->column[i].capacity = -1;
+				free(matrix->key_columns[i]);
 				continue;
 			case TYPE_FLOAT:
 				free(matrix->column[i].values);
 				matrix->column[i].size = 0;
 				matrix->column[i].capacity = -1;
+				free(matrix->key_columns[i]);
 				continue;
 			case TYPE_STRING:
 				for (size_t j = 0; j < matrix->column[i].size; j++)
@@ -24,17 +49,21 @@ void free_matrix(Matrix *matrix) {
 				free(matrix->column[i].values);
 				matrix->column[i].size = 0;
 				matrix->column[i].capacity = -1;
+				free(matrix->key_columns[i]);
 				continue;
 			default:
 				continue;
 		}
 	}
+
+	free(matrix->column);
+	free(matrix->key_columns);
 }
 
 // resizes a columns values field to 2 * capacity
 // returns 1 on some sort of error
 // 0 on success
-size_t resize(Column *column) {
+static size_t resize(Column *column) {
 	column->capacity *= 2;
 	switch (column->type) {
 		case TYPE_INT:
@@ -98,7 +127,7 @@ size_t add_element(Column *column, void *element) {
 	}
 }
 
-Column *get_by_key(const Matrix *matrix, char *key) {
+Column *get_by_key(const Matrix *matrix,const char *key) {
 	for (size_t i = 0; i < matrix->size; i++) {
 		if (!strcmp(matrix->key_columns[i], key)) {
 			return &matrix->column[i];

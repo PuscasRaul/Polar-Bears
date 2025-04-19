@@ -1,8 +1,8 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#define COLUMN_SIZE 155
 typedef enum {TYPE_STRING, TYPE_INT, TYPE_FLOAT} ColumnType;
-#define MAX_COLUMNS 400 
 #define COLUMN_AS(type, col) ((type*)(col).values)
 
 typedef struct {
@@ -18,10 +18,10 @@ typedef struct {
 	size_t size;
 } Matrix;
 
-void free_matrix(Matrix *matrix);
+int init_matrix(Matrix *matrix);
 
-size_t resize(Column *column);
+void free_matrix(Matrix *matrix);
 
 size_t add_element(Column *column, void *element); 
  
-Column *get_by_key(const Matrix *matrix, char *key);
+Column *get_by_key(const Matrix *matrix, const char *key);
